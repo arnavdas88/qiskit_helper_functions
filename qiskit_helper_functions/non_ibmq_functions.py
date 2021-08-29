@@ -1,6 +1,5 @@
 import math, random, pickle, os, copy
-from qiskit import QuantumCircuit, execute
-from qiskit.providers import aer
+from qiskit import QuantumCircuit, Aer, execute
 from qiskit.circuit.classicalregister import ClassicalRegister
 import qiskit.circuit.library as library
 from qiskit.circuit.library import CXGate, IGate, RZGate, SXGate, XGate
@@ -8,8 +7,17 @@ from qiskit.converters import circuit_to_dag, dag_to_circuit
 from qiskit.dagcircuit.dagcircuit import DAGCircuit
 import numpy as np
 
+from qiskit import IBMQ, transpile, Aer, execute
+
+from qiskit.providers.aer import noise
+from qiskit import QuantumCircuit
+from qiskit.providers.aer import AerSimulator
+from qiskit.tools.visualization import plot_histogram
+from qiskit.test.mock import FakeBackend, FakeTokyo, FakeVigo, FakeMelbourne, FakePoughkeepsie, FakeQasmSimulator, FakeRueschlikon, FakeTenerife
+
 from qcg.generators import gen_supremacy, gen_hwea, gen_BV, gen_qft, gen_sycamore, gen_adder, gen_grover
 from qiskit_helper_functions.conversions import dict_to_array
+from qiskit.tket_functions import Tket
 
 def read_dict(filename):
     if os.path.isfile(filename):
@@ -43,7 +51,7 @@ def apply_measurement(circuit,qubits):
     measured_circuit.measure(qubits,measured_circuit.clbits)
     return measured_circuit
 
-def generate_circ(num_qubits,depth,circuit_type):
+def generate_circ(full_circ_size,circuit_type):
     def gen_secret(num_qubit):
         num_digit = num_qubit-1
         num = 2**num_digit-1
@@ -51,40 +59,40 @@ def generate_circ(num_qubits,depth,circuit_type):
         num_with_zeros = str(num).zfill(num_digit)
         return num_with_zeros
 
-    i,j = factor_int(num_qubits)
+    i,j = factor_int(full_circ_size)
     if circuit_type == 'supremacy_linear':
-        full_circ = gen_supremacy(1,num_qubits,depth,regname='q')
+        full_circ = gen_supremacy(1,full_circ_size,8,regname='q')
     elif circuit_type == 'supremacy':
         if abs(i-j)<=2:
-            full_circ = gen_supremacy(i,j,depth,regname='q')
+            full_circ = gen_supremacy(i,j,8,regname='q')
         else:
-            full_circ = None
+            full_circ = QuantumCircuit()
     elif circuit_type == 'hwea':
-        full_circ = gen_hwea(i*j,depth,regname='q')
+        full_circ = gen_hwea(i*j,1,regname='q')
     elif circuit_type == 'bv':
         full_circ = gen_BV(gen_secret(i*j),barriers=False,regname='q')
     elif circuit_type == 'qft':
-        full_circ = library.QFT(num_qubits=num_qubits,approximation_degree=0,do_swaps=False)
+        full_circ = library.QFT(num_qubits=full_circ_size,approximation_degree=0,do_swaps=False)
     elif circuit_type=='aqft':
-        approximation_degree=int(math.log(num_qubits,2)+2)
-        full_circ = library.QFT(num_qubits=num_qubits,approximation_degree=num_qubits-approximation_degree,do_swaps=False)
+        approximation_degree=int(math.log(full_circ_size,2)+2)
+        full_circ = library.QFT(num_qubits=full_circ_size,approximation_degree=full_circ_size-approximation_degree,do_swaps=False)
     elif circuit_type == 'sycamore':
-        full_circ = gen_sycamore(i,j,depth,regname='q')
+        full_circ = gen_sycamore(i,j,8,regname='q')
     elif circuit_type == 'adder':
-        if num_qubits%2==0 and num_qubits>2:
-            full_circ = gen_adder(nbits=int((num_qubits-2)/2),barriers=False,regname='q')
+        if full_circ_size%2==0 and full_circ_size>2:
+            full_circ = gen_adder(nbits=int((full_circ_size-2)/2),barriers=False,regname='q')
         else:
-            full_circ = None
+            full_circ = QuantumCircuit()
     elif circuit_type == 'grover':
-        if num_qubits%2==0:
-            full_circ = gen_grover(width=num_qubits)
+        if full_circ_size%2==0:
+            full_circ = gen_grover(width=full_circ_size)
         else:
-            full_circ = None
+            full_circ = QuantumCircuit()
     elif circuit_type == 'random':
-        full_circ = generate_random_circuit(num_qubits=num_qubits,circuit_depth=depth,density=0.5,inverse=True)
+        full_circ = generate_random_circuit(num_qubits=full_circ_size,circuit_depth=20,density=0.5,inverse=True)
     else:
         raise Exception('Illegal circuit type:',circuit_type)
-    assert full_circ.num_qubits==num_qubits or full_circ.num_qubits==0
+    assert full_circ.num_qubits==full_circ_size or full_circ.num_qubits==0
     return full_circ
 
 def find_process_jobs(jobs,rank,num_workers):
@@ -99,40 +107,140 @@ def find_process_jobs(jobs,rank,num_workers):
     process_jobs = list(jobs[jobs_start:jobs_stop])
     return process_jobs
 
-def evaluate_circ(circuit, backend, options=None):
-    simulator = aer.Aer.get_backend('aer_simulator')
+available_backend = {
+    "FakeTokyo": FakeTokyo, 
+    "FakeVigo": FakeVigo, 
+    "FakeMelbourne": FakeMelbourne, 
+    "FakePoughkeepsie": FakePoughkeepsie, 
+    "FakeRueschlikon": FakeRueschlikon, 
+    "FakeTenerife": FakeTenerife
+}
+
+def get_alloted_backend(backend_stack, circ):
+    for device, circuits in backend_stack.items():
+        if circ in circuits:
+            return device
+    from pprint import pprint
+    pprint(backend_stack)
+    print("\n\n")
+    print(type(circ))
+    print([ circ ])
+    raise Exception(f"The circuit {[circ]} has not been alocated to any device")
+
+def get_backend_name(backend):
+    for name, device in available_backend.items():
+        if device is backend:
+            return name
+        if backend == name:
+            return name
+    raise Exception(f"Backend Error: No specified backend {str(backend)} found.")
+
+
+class CircuitLargerThanChip(Exception):
+    pass
+
+def check_chip_compatiblity(backend, circuit, raise_exception=True):
+    if backend._configuration.n_qubits < circuit.num_qubits:
+        if raise_exception:
+            raise CircuitLargerThanChip(f"Circuit is larger than chip size.\nChip:{backend}\tCircuit:{circuit.num_qubits}")
+        else:
+            return False
+    # print(f"Chip:{backend} {backend._configuration.n_qubits}\tCircuit:{circuit.num_qubits}")
+    return True
+
+def try_fakeBackend(circuit, backend, options=None, TKET = False):
+    if "tket_" in str(backend):
+        backend_name = get_backend_name(backend[5:])
+        TKET = True
+    else:
+        backend_name = get_backend_name(backend)
+    # print("BACKEND : ", backend_name)
+    if backend_name in available_backend:
+        backend = available_backend[backend_name]()
+        # if ENABLE_GPU:
+        #     backend.set_options(device='GPU')
+        # backend.set_options(max_parallel_threads=300, max_parallel_experiments=20, max_parallel_shots=128)
+        noise_model = noise.NoiseModel.from_backend(backend)
+        if isinstance(options,dict) and 'num_shots' in options:
+            num_shots = options['num_shots']
+        else:
+            num_shots = max(1024,2**circuit.num_qubits)
+        if isinstance(options,dict) and 'memory' in options:
+            memory = options['memory']
+        else:
+            memory = False
+        if circuit.num_clbits == 0:
+            circuit = apply_measurement(circuit=circuit,qubits=circuit.qubits)
+            if TKET:
+                circuit = Tket(circuit, backend_name)
+            check_chip_compatiblity(backend, circuit)
+            print('Executing Circuit')
+            job = execute(circuit, backend=backend, noise_model=noise_model, shots=num_shots, memory=memory).result()
+        if memory:
+            qasm_memory = np.array(job.get_memory(0))
+            assert len(qasm_memory)==num_shots
+            return qasm_memory
+        else:
+            counts = job.get_counts(0)
+            assert sum(counts.values())==num_shots
+            counts = dict_to_array(distribution_dict=counts,force_prob=True)
+            return counts
+    return None
+
+def evaluate_circ(circuit, backend, options=None, TKET = False):
+    fake_backend_data = try_fakeBackend(circuit, backend, options=None, TKET = False)
+    if fake_backend_data:
+        return fake_backend_data
+
     if backend=='statevector_simulator':
-        circuit.save_statevector()
-        result = simulator.run(circuit).result()
-        counts = result.get_counts(circuit)
-        prob_vector = np.zeros(2**circuit.num_qubits)
-        for binary_state in counts:
-            state = int(binary_state,2)
-            prob_vector[state] = counts[binary_state]
-        return prob_vector
+        backend = Aer.get_backend('statevector_simulator')
+        job = execute(circuit, backend=backend, optimization_level=0)
+        result = job.result()
+        output_sv = result.get_statevector(circuit)
+        output_p = []
+        for x in output_sv:
+            amplitude = np.absolute(x)**2
+            if amplitude>1e-16:
+                output_p.append(amplitude)
+            else:
+                output_p.append(0)
+        output_p = np.array(output_p)
+        return output_p
     elif backend == 'noiseless_qasm_simulator':
         if isinstance(options,dict) and 'num_shots' in options:
             num_shots = options['num_shots']
         else:
             num_shots = max(1024,2**circuit.num_qubits)
+        backend = Aer.get_backend('qasm_simulator')
 
         if isinstance(options,dict) and 'memory' in options:
             memory = options['memory']
         else:
             memory = False
         if circuit.num_clbits == 0:
-            circuit.measure_all()
-        result = simulator.run(circuit, shots=num_shots, memory=memory).result()
+            circuit = apply_measurement(circuit=circuit,qubits=circuit.qubits)
+        noiseless_qasm_result = execute(circuit, backend, shots=num_shots, memory=memory).result()
 
         if memory:
-            qasm_memory = np.array(result.get_memory(circuit))
+            qasm_memory = np.array(noiseless_qasm_result.get_memory(0))
             assert len(qasm_memory)==num_shots
             return qasm_memory
         else:
-            noiseless_counts = result.get_counts(circuit)
+            noiseless_counts = noiseless_qasm_result.get_counts(0)
             assert sum(noiseless_counts.values())==num_shots
             noiseless_counts = dict_to_array(distribution_dict=noiseless_counts,force_prob=True)
             return noiseless_counts
+    elif backend=='noisy_qasm_simulator':
+        noisy_qasm_result = execute(circuit, Aer.get_backend('qasm_simulator'),
+        coupling_map=options['coupling_map'],
+        basis_gates=options['basis_gates'],
+        noise_model=options['noise_model'],
+        shots=options['num_shots']).result()
+
+        noisy_counts = noisy_qasm_result.get_counts(0)
+        assert sum(noisy_counts.values())==options['num_shots']
+        noisy_counts = dict_to_array(distribution_dict=noisy_counts,force_prob=True)
+        return noisy_counts
     else:
         raise NotImplementedError
 
@@ -157,7 +265,7 @@ def dag_stripping(dag, max_gates):
     vertex_added = 0
     for vertex in dag.topological_op_nodes():
         within_gate_count = max_gates is None or vertex_added<max_gates
-        if vertex.op.name!='barrier' and len(vertex.qargs)==2 and within_gate_count:
+        if vertex.op.name!='barrier' and within_gate_count:
             stripped_dag.apply_operation_back(op=vertex.op, qargs=vertex.qargs)
             vertex_added += 1
     return stripped_dag
