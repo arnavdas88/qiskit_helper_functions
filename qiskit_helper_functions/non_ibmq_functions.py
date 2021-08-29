@@ -17,7 +17,7 @@ from qiskit.test.mock import FakeBackend, FakeTokyo, FakeVigo, FakeMelbourne, Fa
 
 from qcg.generators import gen_supremacy, gen_hwea, gen_BV, gen_qft, gen_sycamore, gen_adder, gen_grover
 from qiskit_helper_functions.conversions import dict_to_array
-from qiskit.tket_functions import Tket
+from qiskit_helper_functions.tket_functions import Tket
 
 def read_dict(filename):
     if os.path.isfile(filename):
