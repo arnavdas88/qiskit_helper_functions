@@ -189,9 +189,10 @@ def find_process_jobs(jobs,rank,num_workers):
 
 def evaluate_circ(circuit, backend, options=None, TKET = False):
     print("running in backend : ", backend)
-    fake_backend_data = try_fakeBackend(circuit, backend, options=options, TKET = TKET)
-    if fake_backend_data is not None:
-        return fake_backend_data
+    if backend not in ["statevector_simulator", "noiseless_qasm_simulator"]:
+        fake_backend_data = try_fakeBackend(circuit, backend, options=options, TKET = TKET)
+        if fake_backend_data is not None:
+            return fake_backend_data
     simulator = aer.Aer.get_backend('aer_simulator')
     if str(backend)=='statevector_simulator':
         circuit.save_statevector()
