@@ -187,10 +187,6 @@ def find_process_jobs(jobs,rank,num_workers):
     return process_jobs
 
 def evaluate_circ(circuit, backend, options=None, TKET = False):
-    fake_backend_data = try_fakeBackend(circuit, backend, options=None, TKET = TKET)
-    if fake_backend_data:
-        return fake_backend_data
-
     simulator = aer.Aer.get_backend('aer_simulator')
     if backend=='statevector_simulator':
         circuit.save_statevector()
@@ -225,6 +221,9 @@ def evaluate_circ(circuit, backend, options=None, TKET = False):
             noiseless_counts = dict_to_array(distribution_dict=noiseless_counts,force_prob=True)
             return noiseless_counts
     else:
+        fake_backend_data = try_fakeBackend(circuit, backend, options=None, TKET = TKET)
+        if fake_backend_data is not None:
+            return fake_backend_data
         raise NotImplementedError
 
 def circuit_stripping(circuit):
