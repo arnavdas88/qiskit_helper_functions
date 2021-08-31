@@ -30,7 +30,6 @@ available_backend = {
 def get_alloted_backend(backend_stack, circ):
     for device, circuits in backend_stack.items():
         if circ in circuits:
-            print(f"Running on device {device}")
             return device
     from pprint import pprint
     pprint(backend_stack)
@@ -71,7 +70,9 @@ def try_fakeBackend(circuit, backend, options=None, TKET = False):
         backend = available_backend[backend_name]()
         # if ENABLE_GPU:
         #     backend.set_options(device='GPU')
-        backend.set_options(max_parallel_threads=500, max_parallel_experiments=1024, max_parallel_shots=1024)
+        
+        backend.set_options(max_parallel_shots=1024)
+        # backend.set_options(max_parallel_threads=500, max_parallel_experiments=1024, max_parallel_shots=1024)
         noise_model = noise.NoiseModel.from_backend(backend)
         if isinstance(options,dict) and 'num_shots' in options:
             num_shots = options['num_shots']
@@ -87,7 +88,7 @@ def try_fakeBackend(circuit, backend, options=None, TKET = False):
                 circuit = Tket(circuit, backend_name)
             check_chip_compatiblity(backend, circuit)
             print('Executing Circuit')
-            job = execute(circuit, backend=backend, noise_model=noise_model, shots=num_shots, memory=memory).result()
+            job = execute(circuit, backend=backend, shots=num_shots, memory=memory).result()
         if memory:
             qasm_memory = np.array(job.get_memory(0))
             assert len(qasm_memory)==num_shots
@@ -188,7 +189,6 @@ def find_process_jobs(jobs,rank,num_workers):
     return process_jobs
 
 def evaluate_circ(circuit, backend, options=None, TKET = False):
-    print("running in backend : ", backend)
     if backend not in ["statevector_simulator", "noiseless_qasm_simulator"]:
         fake_backend_data = try_fakeBackend(circuit, backend, options=options, TKET = TKET)
         if fake_backend_data is not None:
