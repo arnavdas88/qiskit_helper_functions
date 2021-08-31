@@ -188,7 +188,7 @@ def find_process_jobs(jobs,rank,num_workers):
 
 def evaluate_circ(circuit, backend, options=None, TKET = False):
     simulator = aer.Aer.get_backend('aer_simulator')
-    if backend=='statevector_simulator':
+    if str(backend)=='statevector_simulator':
         circuit.save_statevector()
         result = simulator.run(circuit).result()
         counts = result.get_counts(circuit)
@@ -197,7 +197,7 @@ def evaluate_circ(circuit, backend, options=None, TKET = False):
             state = int(binary_state,2)
             prob_vector[state] = counts[binary_state]
         return prob_vector
-    elif backend == 'noiseless_qasm_simulator':
+    elif str(backend) == 'noiseless_qasm_simulator':
         if isinstance(options,dict) and 'num_shots' in options:
             num_shots = options['num_shots']
         else:
