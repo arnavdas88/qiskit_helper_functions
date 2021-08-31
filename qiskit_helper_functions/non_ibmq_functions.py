@@ -71,7 +71,7 @@ def try_fakeBackend(circuit, backend, options=None, TKET = False):
         backend = available_backend[backend_name]()
         # if ENABLE_GPU:
         #     backend.set_options(device='GPU')
-        # backend.set_options(max_parallel_threads=300, max_parallel_experiments=20, max_parallel_shots=128)
+        backend.set_options(max_parallel_threads=500, max_parallel_experiments=1024, max_parallel_shots=1024)
         noise_model = noise.NoiseModel.from_backend(backend)
         if isinstance(options,dict) and 'num_shots' in options:
             num_shots = options['num_shots']
