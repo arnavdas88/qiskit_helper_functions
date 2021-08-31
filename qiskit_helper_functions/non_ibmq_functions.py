@@ -188,6 +188,7 @@ def find_process_jobs(jobs,rank,num_workers):
     return process_jobs
 
 def evaluate_circ(circuit, backend, options=None, TKET = False):
+    print("backend : ", backend)
     if type(backend) is not str:
         fake_backend_data = try_fakeBackend(circuit, backend, options=options, TKET = TKET)
         if fake_backend_data is not None:
