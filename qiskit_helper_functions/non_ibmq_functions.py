@@ -30,6 +30,7 @@ available_backend = {
 def get_alloted_backend(backend_stack, circ):
     for device, circuits in backend_stack.items():
         if circ in circuits:
+            print(f"Running on device {device}")
             return device
     from pprint import pprint
     pprint(backend_stack)
@@ -187,8 +188,8 @@ def find_process_jobs(jobs,rank,num_workers):
     return process_jobs
 
 def evaluate_circ(circuit, backend, options=None, TKET = False):
-    if type(backend) is list:
-        fake_backend_data = try_fakeBackend(circuit, backend, options=None, TKET = TKET)
+    if type(backend) is not str:
+        fake_backend_data = try_fakeBackend(circuit, backend, options=options, TKET = TKET)
         if fake_backend_data is not None:
             return fake_backend_data
     simulator = aer.Aer.get_backend('aer_simulator')
